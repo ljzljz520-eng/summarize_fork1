@@ -11,8 +11,6 @@ import uuid
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
-import requests
-
 from .downloaders import DownloadManager
 from .exceptions import (
     AudioProcessingError,
@@ -30,6 +28,8 @@ from .handlers import (
 )
 from .progress import ProgressSpinner, print_status
 from .proxy import get_proxies, should_proxy_url
+from .security.httpguards import session_for
+from .security.netpolicy import PURPOSE_DRIVE, PURPOSE_DROPBOX
 
 # Hardcoded YouTube hosts for URL passthrough mode.
 _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
@@ -157,18 +157,18 @@ def _download_google_drive_video(
     temp_path = os.path.join(temp_dir, f"gdrive_visual_{uuid.uuid4().hex}.mp4")
 
     spinner = ProgressSpinner("Downloading Google Drive video", verbose)
-    session = requests.Session()
+    session = session_for(None, PURPOSE_DRIVE, proxies=proxies)
     response = None
     try:
         spinner.start()
-        response = session.get(download_url, stream=True, timeout=120, proxies=proxies)
+        response = session.get(download_url, stream=True, timeout=120)
         response.raise_for_status()
 
         confirm_url = extract_google_drive_confirm_url(response, file_id)
         if confirm_url:
             response.close()
             response = session.get(
-                confirm_url, stream=True, timeout=120, proxies=proxies
+                confirm_url, stream=True, timeout=120
             )
             response.raise_for_status()
 
@@ -204,10 +204,11 @@ def _download_dropbox_video(
     temp_path = os.path.join(temp_dir, f"dropbox_visual_{uuid.uuid4().hex}.mp4")
 
     spinner = ProgressSpinner("Downloading Dropbox video", verbose)
+    session = session_for(None, PURPOSE_DROPBOX, proxies=proxies)
     try:
         spinner.start()
-        with requests.get(
-            download_url, stream=True, timeout=120, proxies=proxies
+        with session.get(
+            download_url, stream=True, timeout=120
         ) as response:
             response.raise_for_status()
             with open(temp_path, "wb") as f:

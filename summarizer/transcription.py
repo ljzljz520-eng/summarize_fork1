@@ -9,6 +9,8 @@ from .progress import ProgressSpinner, print_status
 from .handlers import get_handler, is_dropbox_url, is_google_drive_url
 from .downloaders import DownloadManager, is_youtube_url
 from .proxy import get_youtube_transcript_proxy_config
+from .security.httpguards import preflight_url
+from .security.netpolicy import PURPOSE_YOUTUBE_CAPTIONS
 from .transcript_cache import get_cached_transcript, put_cached_transcript
 
 
@@ -41,6 +43,15 @@ def get_youtube_transcript(
         )
     except ImportError:
         raise TranscriptError("youtube-transcript-api package not installed")
+
+    # youtube-transcript-api owns its HTTP client; validate the canonical
+    # watch URL at the URL layer. Its www.youtube.com connections are covered
+    # by the youtube_captions suffix list and the socket guard at connect time.
+    preflight_url(
+        None,
+        f"https://www.youtube.com/watch?v={video_id}",
+        PURPOSE_YOUTUBE_CAPTIONS,
+    )
 
     spinner = ProgressSpinner("Fetching YouTube transcript", verbose)
     try:

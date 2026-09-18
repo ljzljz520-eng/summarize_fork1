@@ -89,3 +89,79 @@ defaults:
   visual-chunk-overlap-seconds: 0
   # visual-max-size-mb: 100
   # visual-max-duration-seconds: 120
+
+# ─────────────────────────────────────────────────────────────────────
+# Server deployment (optional, used by `summarizer serve`)
+# ─────────────────────────────────────────────────────────────────────
+# Modes:
+#   local-trusted        (default) No authentication; loopback bind only
+#                        unless confirm_non_loopback: true. Historical
+#                        single-user behavior.
+#   authenticated-server Every endpoint except /health requires an API
+#                        token or OIDC identity; only registered providers
+#                        can be selected; api_key/base_url/model/cobalt_url
+#                        request overrides are forbidden; the outbound
+#                        policy below is enforced.
+# Environment overrides: SUMMARIZER_DEPLOY_MODE, SUMMARIZER_API_TOKEN,
+# SUMMARIZER_API_TOKEN_SCOPES, SUMMARIZER_OIDC_ISSUER/AUDIENCE/JWKS_URI,
+# SUMMARIZER_LOCAL_SOURCE_ROOTS, SUMMARIZER_CORS_ORIGINS.
+#
+# server:
+#   mode: authenticated-server
+#   # cors_origins: ["https://summarize.example.com"]
+#   # Required for local-trusted when binding 0.0.0.0:
+#   # confirm_non_loopback: false
+#   # Directories from which Local File/TXT sources may be read. Empty by
+#   # default, which disables local path sources even with sources:local.
+#   local_source_roots:
+#     - /srv/summarizer/media
+#   auth:
+#     tokens:
+#       - id: ops-token
+#         # Set exactly one of: token (hashed at startup) or token_hash.
+#         # token: plaintext-token-value
+#         token_hash: sha256:64-char-hex-digest-of-the-token
+#         scopes:
+#           - summarize:read
+#           - summarize:write
+#           - summarize:upload
+#           - sources:local
+#           # - admin:config
+#         # Optional provider allowlist for this identity (all when absent):
+#         # providers: [groq, gemini]
+#     # OIDC bearer JWTs (RS256/ES256) are accepted in addition to tokens:
+#     # oidc:
+#     #   issuer: https://login.example.com/realms/summarizer
+#     #   audience: summarize-api
+#     #   # Explicit JWKS URI. Required when the IdP hosts keys on a different
+#     #   # origin than the issuer (e.g. Google/Microsoft); that origin is
+#     #   # registered with the outbound policy automatically.
+#     #   jwks_uri: https://login.example.com/realms/summarizer/protocol/openid-connect/certs
+#     #   algorithms: [RS256, ES256]
+#     #   scopes_claim: scope      # space-separated string, or use "scp" (array)
+#     #   providers_claim: providers
+
+# ─────────────────────────────────────────────────────────────────────
+# Outbound policy (authenticated-server only)
+# ─────────────────────────────────────────────────────────────────────
+# All model/vision, Drive/Dropbox, Cobalt and generic video downloads pass
+# through one policy layer: scheme/port validation, every resolved IP,
+# every redirect and every connect target. Loopback, link-local, private
+# ranges and DNS rebinding are rejected. Private-IP exemptions are bound to
+# the exact registered origins and purposes; user-supplied download URLs
+# never inherit an exemption, even when their hostname matches. There is no
+# implicit localhost Cobalt in this mode: configure defaults.cobalt-base-url
+# explicitly (and list it below when it resolves privately).
+#
+# outbound:
+#   # Ports allowed for user-supplied download URLs (default 80/443).
+#   allowed_ports: [80, 443]
+#   # Hostname origins allowed to resolve to private IPs (e.g. a local or
+#   # docker-host Cobalt). IP literals are never exempted; pinning applies
+#   # only to resolutions of these hostnames.
+#   allow_private_origins:
+#     - http://localhost:9000
+#     # - http://host.docker.internal:9000
+#   # Additional private networks allowed for registered infrastructure:
+#   allow_private_cidrs:
+#     - 10.0.0.0/8

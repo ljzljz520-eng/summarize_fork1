@@ -54,6 +54,33 @@ Examples:
         default=8000,
         help="Server port (default: 8000)",
     )
+    serve_parser.add_argument(
+        "--mode",
+        choices=["local-trusted", "authenticated-server"],
+        default=None,
+        help=(
+            "Deployment mode (default: local-trusted, or "
+            "SUMMARIZER_DEPLOY_MODE / server.mode in summarizer.yaml)"
+        ),
+    )
+    serve_parser.add_argument(
+        "--confirm-non-loopback-bind",
+        action="store_true",
+        help=(
+            "Required to bind local-trusted mode on a non-loopback host; "
+            "prefer --mode authenticated-server for network exposure."
+        ),
+    )
+    serve_parser.add_argument(
+        "--local-source-root",
+        dest="local_source_roots",
+        action="append",
+        default=None,
+        help=(
+            "Directory allowed for Local File/TXT sources in "
+            "authenticated-server mode (repeatable; requires sources:local)."
+        ),
+    )
 
     # ── Summarization arguments (main parser) ──
     # Config file options
@@ -273,9 +300,43 @@ def cli():
                 "Server dependencies not installed. Run: pip install 'summarizer[server]'"
             )
             sys.exit(1)
-        print(f"Starting Summarize API server at http://{args.host}:{args.port}")
+
+        import dataclasses
+
+        from summarizer.exceptions import ConfigurationError
+        from summarizer.security.settings import (
+            load_server_settings,
+            validate_bind_host,
+        )
+        from summarizer.server import create_app
+
+        serve_config_path = getattr(args, "config", None)
+        if getattr(args, "no_config", False):
+            serve_file_config = {}
+        else:
+            serve_file_config = load_config_file(
+                serve_config_path if serve_config_path else None
+            )
+        try:
+            settings = load_server_settings(
+                mode_arg=args.mode,
+                local_source_roots_arg=args.local_source_roots,
+                file_config=serve_file_config,
+            )
+            if args.confirm_non_loopback_bind:
+                settings = dataclasses.replace(
+                    settings, confirm_non_loopback=True
+                )
+            validate_bind_host(args.host, settings)
+        except ConfigurationError as exc:
+            print_status(str(exc), "ERROR", True)
+            sys.exit(1)
+
+        application = create_app(settings, file_config=serve_file_config)
+        print(f"Starting Summarize API server ({settings.mode}) at "
+              f"http://{args.host}:{args.port}")
         print(f"API docs: http://{args.host}:{args.port}/docs")
-        uvicorn.run("summarizer.server:app", host=args.host, port=args.port, reload=False)
+        uvicorn.run(application, host=args.host, port=args.port)
         return
 
     # Handle --init-config

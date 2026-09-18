@@ -11,6 +11,8 @@ from .exceptions import APIError, ConfigurationError, VideoValidationError
 from .progress import print_status
 from .prompts import load_prompt_template
 from .proxy import get_proxy_url, should_proxy_url
+from .security.httpguards import guarded_aiohttp_session, preflight_url
+from .security.netpolicy import PURPOSE_VISION
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +238,10 @@ async def _process_video_openai_url(
 
     for attempt in range(max_retries):
         try:
-            async with aiohttp.ClientSession() as session:
+            # URL-layer policy check (exact registered origin, https-only);
+            # the guarded connector validates every resolved IP.
+            preflight_url(None, url, PURPOSE_VISION)
+            async with guarded_aiohttp_session(None, PURPOSE_VISION) as session:
                 async with session.post(
                     url,
                     headers=headers,

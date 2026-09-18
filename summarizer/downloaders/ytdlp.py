@@ -11,6 +11,8 @@ from ..exceptions import AudioProcessingError, TranscriptError
 from ..handlers import process_audio_file
 from ..progress import ProgressSpinner, print_status
 from ..proxy import get_proxy_url, should_proxy_url
+from ..security.httpguards import preflight_url
+from ..security.netpolicy import PURPOSE_GENERIC_DOWNLOAD
 from .base import BaseDownloader
 from .youtube import is_youtube_url
 
@@ -230,6 +232,10 @@ class YtdlpDownloader(BaseDownloader):
         ydl_opts["format"] = "bestaudio/best"
         ydl_opts["outtmpl"] = temp_template
         _apply_common_options(ydl_opts, url, use_proxy, verbose)
+        # URL-layer preflight; yt-dlp owns the client and follows many
+        # redirects internally — the process-wide socket guard enforces the
+        # IP/connect policy for every connection it opens.
+        preflight_url(None, url, PURPOSE_GENERIC_DOWNLOAD)
 
         spinner = ProgressSpinner("Downloading audio with yt-dlp", verbose)
         produced_files = []
@@ -283,6 +289,10 @@ class YtdlpDownloader(BaseDownloader):
         ydl_opts["format"] = "bestvideo*+bestaudio/best"
         ydl_opts["outtmpl"] = temp_template
         _apply_common_options(ydl_opts, url, use_proxy, verbose)
+        # URL-layer preflight; yt-dlp owns the client and follows many
+        # redirects internally — the process-wide socket guard enforces the
+        # IP/connect policy for every connection it opens.
+        preflight_url(None, url, PURPOSE_GENERIC_DOWNLOAD)
 
         spinner = ProgressSpinner("Downloading video with yt-dlp", verbose)
         produced_files = []

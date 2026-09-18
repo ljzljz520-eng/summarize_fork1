@@ -7,6 +7,8 @@ from typing import Dict, List, Tuple, Any
 from .exceptions import APIError, ConfigurationError
 from .progress import ProgressBar, SimpleProgress, print_status
 from .proxy import get_proxy_url, should_proxy_url
+from .security.httpguards import guarded_aiohttp_session, preflight_url
+from .security.netpolicy import PURPOSE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +217,10 @@ async def process_chunk(
     if not chunk.strip():
         return ""
 
-    # Use LiteLLM when base_url is "litellm"
+    # Use LiteLLM when base_url is "litellm". LiteLLM owns its HTTP client and
+    # endpoint selection, so there is no fixed URL to preflight; in
+    # authenticated-server mode the process-wide socket guard enforces the
+    # outbound policy for every connection LiteLLM opens.
     if config.get("base_url") == "litellm":
         return await _process_chunk_litellm(chunk, template, config, max_retries)
 
@@ -238,12 +243,15 @@ async def process_chunk(
 
     for attempt in range(max_retries):
         try:
-            async with aiohttp.ClientSession() as session:
-                url = f"{config['base_url']}/chat/completions"
-                proxy = None
-                if should_proxy_url(url, bool(config.get("use_proxy", False))):
-                    proxy = get_proxy_url(True, url)
+            url = f"{config['base_url']}/chat/completions"
+            # URL-layer policy check (exact registered origin, https-only);
+            # the guarded connector validates every resolved IP.
+            preflight_url(None, url, PURPOSE_MODEL)
+            proxy = None
+            if should_proxy_url(url, bool(config.get("use_proxy", False))):
+                proxy = get_proxy_url(True, url)
 
+            async with guarded_aiohttp_session(None, PURPOSE_MODEL) as session:
                 async with session.post(
                     url,
                     headers=headers,

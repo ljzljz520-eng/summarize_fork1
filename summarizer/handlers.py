@@ -10,6 +10,8 @@ import requests
 
 from .exceptions import SourceNotFoundError, UnsupportedSourceError, AudioProcessingError
 from .proxy import get_proxies, should_proxy_url
+from .security.httpguards import session_for
+from .security.netpolicy import PURPOSE_DRIVE, PURPOSE_DROPBOX
 
 
 DROPBOX_HOST_SUFFIXES = ("dropbox.com", "dropboxusercontent.com")
@@ -215,7 +217,7 @@ class GoogleDriveHandler(VideoSourceHandler):
         if should_proxy_url(download_url, self.use_proxy):
             proxies = get_proxies(True)
 
-        session = requests.Session()
+        session = session_for(None, PURPOSE_DRIVE, proxies=proxies)
         response = None
         try:
             response = session.get(
@@ -260,7 +262,7 @@ class GoogleDriveHandler(VideoSourceHandler):
         if should_proxy_url(download_url, self.use_proxy):
             proxies = get_proxies(True)
 
-        session = requests.Session()
+        session = session_for(None, PURPOSE_DRIVE, proxies=proxies)
         response = None
         try:
             response = session.get(
@@ -338,12 +340,12 @@ class DropboxHandler(VideoSourceHandler):
         if should_proxy_url(download_url, self.use_proxy):
             proxies = get_proxies(True)
 
+        session = session_for(None, PURPOSE_DROPBOX, proxies=proxies)
         try:
-            with requests.get(
+            with session.get(
                 download_url,
                 stream=True,
                 timeout=120,
-                proxies=proxies,
             ) as response:
                 response.raise_for_status()
                 with open(output_path, "wb") as f:
@@ -362,12 +364,12 @@ class DropboxHandler(VideoSourceHandler):
         if should_proxy_url(download_url, self.use_proxy):
             proxies = get_proxies(True)
 
+        session = session_for(None, PURPOSE_DROPBOX, proxies=proxies)
         try:
-            with requests.get(
+            with session.get(
                 download_url,
                 stream=True,
                 timeout=120,
-                proxies=proxies,
             ) as response:
                 response.raise_for_status()
                 with open(temp_video, "wb") as f:

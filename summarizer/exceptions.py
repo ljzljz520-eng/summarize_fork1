@@ -49,3 +49,8 @@ class VisualModeError(SummarizerError):
 class VideoValidationError(VisualModeError):
     """Raised when a video fails provider limit checks."""
     pass
+
+
+class LocalSourceDenied(SummarizerError):
+    """Raised when a local path source is outside policy or not authorized."""
+    pass

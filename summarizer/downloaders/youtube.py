@@ -9,6 +9,8 @@ from ..exceptions import AudioProcessingError
 from ..handlers import process_audio_file
 from ..progress import ProgressSpinner, print_status
 from ..proxy import get_proxies
+from ..security.httpguards import preflight_url
+from ..security.netpolicy import PURPOSE_YOUTUBE_CAPTIONS
 from .base import BaseDownloader
 
 
@@ -131,6 +133,9 @@ class YouTubeDownloader(BaseDownloader):
             if proxies:
                 print_status("Using HTTP proxy for YouTube video", "INFO", verbose)
 
+            # pytubefix owns its HTTP client; URL layer here, socket guard
+            # covers its googlevideo.com media connections.
+            preflight_url(None, url, PURPOSE_YOUTUBE_CAPTIONS)
             yt = pytube.YouTube(url, proxies=proxies)
             # Prefer progressive MP4 streams (muxed audio+video)
             stream = (

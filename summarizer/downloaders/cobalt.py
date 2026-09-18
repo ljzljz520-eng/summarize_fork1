@@ -5,10 +5,17 @@ import tempfile
 import uuid
 from typing import Optional
 from urllib.parse import urlparse
-import requests
 from ..exceptions import AudioProcessingError, TranscriptError
 from ..handlers import process_audio_file
 from ..progress import ProgressSpinner, print_status
+from ..security.httpguards import guarded_request, preflight_url
+from ..security.netpolicy import (
+    OutboundPolicyError,
+    PURPOSE_COBALT_API,
+    PURPOSE_COBALT_DOWNLOAD,
+    PURPOSE_GENERIC_DOWNLOAD,
+    get_policy,
+)
 from .base import BaseDownloader
 
 
@@ -27,6 +34,16 @@ class CobaltDownloader(BaseDownloader):
     ) -> str:
         if not self.base_url:
             raise TranscriptError("Cobalt base URL not configured")
+
+        # The user-supplied target travels inside the POST body and would
+        # otherwise be fetched by the Cobalt server from ITS network position,
+        # turning Cobalt into an SSRF open relay. Apply the same public-host
+        # policy here (scheme/port/suffix/IP classification, resolving every
+        # address now) before asking Cobalt to fetch anything.
+        policy = get_policy()
+        if policy.enforce:
+            origin = preflight_url(policy, url, PURPOSE_GENERIC_DOWNLOAD)
+            policy.resolve_and_check(origin.host, purpose=PURPOSE_GENERIC_DOWNLOAD)
 
         spinner = ProgressSpinner("Requesting Cobalt download", verbose)
         try:
@@ -49,8 +66,12 @@ class CobaltDownloader(BaseDownloader):
                     "downloadMode": "auto",
                     "disableMetadata": True,
                 }
-            response = requests.post(
+            # Exact registered Cobalt origin; redirects are disabled for this
+            # purpose by the guarded session.
+            response = guarded_request(
+                "post",
                 f"{self.base_url}/",
+                purpose=PURPOSE_COBALT_API,
                 json=request_payload,
                 headers={"Accept": "application/json"},
                 timeout=60,
@@ -64,6 +85,12 @@ class CobaltDownloader(BaseDownloader):
                 response.raise_for_status()
                 raise TranscriptError("Cobalt returned non-JSON response")
             spinner.stop()
+        except OutboundPolicyError as exc:
+            spinner.stop()
+            # Never echo internal hostnames/IPs from the policy error.
+            raise TranscriptError(
+                "Cobalt request blocked by the outbound security policy."
+            ) from exc
         except Exception as e:
             spinner.stop()
             raise TranscriptError(f"Cobalt request failed: {str(e)}")
@@ -106,6 +133,10 @@ class CobaltDownloader(BaseDownloader):
     ) -> str:
         try:
             download_url = self._resolve_download_url(url, verbose, mode="audio")
+        except OutboundPolicyError as exc:
+            raise AudioProcessingError(
+                "Cobalt request blocked by the outbound security policy."
+            ) from exc
         except Exception as e:
             raise AudioProcessingError(f"Cobalt audio download failed: {str(e)}") from e
         temp_root = temp_dir or tempfile.gettempdir()
@@ -116,7 +147,13 @@ class CobaltDownloader(BaseDownloader):
         spinner = ProgressSpinner("Downloading audio from Cobalt", verbose)
         try:
             spinner.start()
-            with requests.get(download_url, stream=True, timeout=120) as response:
+            with guarded_request(
+                "get",
+                download_url,
+                purpose=PURPOSE_COBALT_DOWNLOAD,
+                stream=True,
+                timeout=120,
+            ) as response:
                 response.raise_for_status()
                 with open(temp_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=1024 * 256):
@@ -132,6 +169,15 @@ class CobaltDownloader(BaseDownloader):
             print_status("Audio processing completed", "SUCCESS", verbose)
             os.remove(temp_path)
             return processed_path
+        except OutboundPolicyError as exc:
+            spinner.stop()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            if os.path.exists(processed_path):
+                os.remove(processed_path)
+            raise AudioProcessingError(
+                "Cobalt download blocked by the outbound security policy."
+            ) from exc
         except Exception as e:
             spinner.stop()
             if os.path.exists(temp_path):
@@ -149,6 +195,10 @@ class CobaltDownloader(BaseDownloader):
     ) -> str:
         try:
             download_url = self._resolve_download_url(url, verbose, mode="video")
+        except OutboundPolicyError as exc:
+            raise AudioProcessingError(
+                "Cobalt request blocked by the outbound security policy."
+            ) from exc
         except Exception as e:
             raise AudioProcessingError(f"Cobalt video download failed: {str(e)}") from e
         temp_root = temp_dir or tempfile.gettempdir()
@@ -158,7 +208,13 @@ class CobaltDownloader(BaseDownloader):
         spinner = ProgressSpinner("Downloading video from Cobalt", verbose)
         try:
             spinner.start()
-            with requests.get(download_url, stream=True, timeout=120) as response:
+            with guarded_request(
+                "get",
+                download_url,
+                purpose=PURPOSE_COBALT_DOWNLOAD,
+                stream=True,
+                timeout=120,
+            ) as response:
                 response.raise_for_status()
                 with open(temp_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=1024 * 256):
@@ -167,6 +223,13 @@ class CobaltDownloader(BaseDownloader):
             spinner.stop()
             print_status("Cobalt video download completed", "SUCCESS", verbose)
             return temp_path
+        except OutboundPolicyError as exc:
+            spinner.stop()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise AudioProcessingError(
+                "Cobalt download blocked by the outbound security policy."
+            ) from exc
         except Exception as e:
             spinner.stop()
             if os.path.exists(temp_path):
